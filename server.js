@@ -16,7 +16,12 @@ const queue = new AwaitQueue();
 // @type {Map<Number, Room>}
 const rooms = new Map();
 
+setInterval(()=>{
+   for(const room of rooms.values()){
+       room.logStatus();
+   }
 
+},5000)
 // Protoo WebSocket server.
 // @type {protoo.WebSocketServer}
 let protooWebSocketServer;
@@ -95,6 +100,8 @@ async function runProtooWebSocketServer()
         const roomId = u.query['roomId'];
         const peerId = u.query['peerId'];
 
+
+        console.log({roomId,peerId});
 
         if (!roomId || !peerId)
         {
