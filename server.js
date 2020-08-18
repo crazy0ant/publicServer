@@ -26,6 +26,10 @@ setInterval(()=>{
 // @type {protoo.WebSocketServer}
 let protooWebSocketServer;
 
+// Protoo WebSocket server.
+// @type {protoo.WebSocketServer}
+let protooWebSocketTlsServer;
+
 // HTTPS server.
 // @type {https.Server}
 let httpsServer;
@@ -43,13 +47,13 @@ async function run()
 
     // Run HTTPS server.
     //await runHttpsServer();
-    //await runHttpsServer();
+    await runHttpsServer();
 
     // Run a protoo WebSocketServer.
     await runProtooWebSocketServer();
 
     // Run a protoo WebSocketServer2.
-    //await runProtooWebSocketServer2();
+    await runProtooWebSocketTlsServer();
 
     // Log rooms status every X seconds.
     /*setInterval(() =>
@@ -63,17 +67,26 @@ async function run()
 
 async function runHttpServer()
 {
-    //logger.info('running an HTTP server...');
-
     // HTTP server for the protoo WebSocket server.
-
-
     httpServer = http.createServer();
-
     await new Promise((resolve) =>
     {
         httpServer.listen(Number(config.http.listenPort), config.http.listenIp, resolve);
-        console.log('httpsPort',config.http.listenPort);
+        console.log('httpPort',config.http.listenPort);
+    });
+}
+async function runHttpsServer()
+{
+    // HTTPS server for the protoo WebSocket server.
+    const tls = {
+        cert: fs.readFileSync(config.https.tls.cert),
+        key: fs.readFileSync(config.https.tls.key),
+    }
+    httpsServer = https.createServer(tls);
+    await new Promise((resolve) =>
+    {
+        httpsServer.listen(Number(config.https.listenPort), config.https.listenIp, resolve);
+        console.log('httpsPort',config.https.listenPort);
     });
 }
 
@@ -100,6 +113,57 @@ async function runProtooWebSocketServer()
         const roomId = u.query['roomId'];
         const peerId = u.query['peerId'];
 
+        console.log({roomId,peerId});
+
+        if (!roomId || !peerId)
+        {
+            reject(400, 'Connection request without roomId and/or peerId');
+
+            return;
+        }
+
+
+        // Serialize this code into the queue to avoid that two peers connecting at
+        // the same time with the same roomId create two separate rooms with same
+        // roomId.
+        queue.push(async () =>
+        {
+            const room = await getOrCreateRoom({ roomId });
+
+            // Accept the protoo WebSocket connection.
+            const protooWebSocketTransport = accept();
+
+            room.handleProtooConnection({ peerId, protooWebSocketTransport });
+        })
+            .catch((error) =>
+            {
+                logger.error('room creation or room joining failed:%o', error);
+
+                reject(error);
+            });
+    });
+}
+/**
+ * Create a protoo WebSocketServer to allow WebSocket connections from browsers.
+ */
+async function runProtooWebSocketTlsServer()
+{
+    // Create the protoo WebSocket server.
+    protooWebSocketTlsServer = new protoo.WebSocketServer(httpsServer,
+        {
+            maxReceivedFrameSize     : 960000, // 960 KBytes.
+            maxReceivedMessageSize   : 960000,
+            fragmentOutgoingMessages : true,
+            fragmentationThreshold   : 960000
+        });
+
+    // Handle connections from clients.
+    protooWebSocketTlsServer.on('connectionrequest', (info, accept, reject) =>
+    {
+        // The client indicates the roomId and peerId in the URL query.
+        const u = url.parse(info.request.url, true);
+        const roomId = u.query['roomId'];
+        const peerId = u.query['peerId'];
 
         console.log({roomId,peerId});
 
